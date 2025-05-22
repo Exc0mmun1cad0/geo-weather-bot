@@ -29,7 +29,7 @@ class TgClient:
 # from http_client.http_client import TelegramAPI
 
 # async def main() -> None:
-#     bot_token = "8150771800:AAE4XXBXMn6oaI2ZkzkU3k3jpotUfu-0OrI"
+#     bot_token = "88005553535:gotouchthegrass"
 #     chat_id = "477972853"
 #     text = "Hello"
 
