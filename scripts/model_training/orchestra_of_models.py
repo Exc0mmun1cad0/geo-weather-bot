@@ -10,26 +10,29 @@ warnings.filterwarnings("ignore")
 class TemperaturePredictor:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.classes = ["-30 - -10", "-10 - 0", "0 - 10", "10 - 30", "30 - 50"]
-        self.transform = self._get_transforms()
+        self.classes = ["-30 - -10", "-10 - 0", "0 - 10", "10 - 30"]
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
         self.classifier = self._load_classifier("classification_model.pth")
         self.regressors = self._load_regressors()
 
     def _load_classifier(self, model_path):
-        """Загрузка классификатора диапазонов"""
-        model = models.efficientnet_b0(weights=None)
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(self.classes))
+        model = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
+        model.classifier[3] = nn.Linear(model.classifier[3].in_features, 4)
 
         try:
             state_dict = torch.load(model_path, map_location=self.device)
-            # Удаляем несовместимые веса последнего слоя
-            for key in ['classifier.1.weight', 'classifier.1.bias']:
+            # Remove incompatible final layer weights if class count differs
+            for key in ['classifier.3.weight', 'classifier.3.bias']:
                 if key in state_dict and state_dict[key].shape[0] != len(self.classes):
                     del state_dict[key]
 
             model.load_state_dict(state_dict, strict=False)
         except Exception as e:
-            print(f"Ошибка загрузки классификатора: {e}")
+            print(f"Error during classifier loading: {e}")
             exit()
 
         model = model.to(self.device)
@@ -37,12 +40,11 @@ class TemperaturePredictor:
         return model
 
     def _load_regressors(self):
-        """Загрузка регрессионных моделей для каждого диапазона"""
+        """Load regression models for each range"""
         regressors = {}
         range_files = {
             "0 - 10": "0-10_model.pth",
             "10 - 30": "10-30_model.pth",
-            "30 - 50": "30-50_model.pth",
             "-10 - 0": "-10-0_model.pth",
             "-30 - -10": "-30--10_model.pth"
         }
@@ -64,35 +66,27 @@ class TemperaturePredictor:
 
         return regressors
 
-    def _get_transforms(self):
-        """Общие трансформации для изображений"""
-        return transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
-
     def predict(self, image_path):
-        """Полный процесс предсказания"""
+        """Full prediction process"""
         try:
-            # Загрузка и преобразование изображения
+            # Load and transform image
             image = Image.open(image_path).convert('RGB')
             img_tensor = self.transform(image).unsqueeze(0).to(self.device)
 
-            # 1. Классификация диапазона
+            # 1. Range classification
             with torch.no_grad():
                 class_output = self.classifier(img_tensor)
                 _, class_idx = torch.max(class_output, 1)
                 predicted_range = self.classes[class_idx.item()]
 
-            # 2. Регрессия для точной температуры
+            # 2. Regression of the exact temperature
             temperature = None
             if predicted_range in self.regressors:
                 with torch.no_grad():
                     temp_pred = self.regressors[predicted_range](img_tensor)
                     temperature = temp_pred.item()
 
-                    # Ограничиваем температуру границами диапазона
+                    # Limit the temperature to the limits of the range
                     min_temp, max_temp = map(int, predicted_range.split(" - "))
                     temperature = max(min_temp, min(max_temp, temperature))
                     temperature = round(temperature, 1)
@@ -104,21 +98,21 @@ class TemperaturePredictor:
             }
 
         except Exception as e:
-            print(f"Ошибка обработки {image_path}: {e}")
+            print(f"Error handling {image_path}: {e}")
             return None
 
 
 if __name__ == "__main__":
-    # Инициализация предсказателя
+    # predictor init
     predictor = TemperaturePredictor()
 
-    # Пример использования
-    result = predictor.predict("punk1.jpg")
+    # usage
+    result = predictor.predict("punk.jpg")
 
     if result:
         if result["temperature"] is not None:
-            print(f"Результат: {result['range']}, Температура: {result['temperature']}°C")
+            print(f"Range: {result['range']}, temperature: {result['temperature']}°C")
         else:
-            print(f"Результат: {result['range']} (регрессор не доступен)")
+            print(f"Range: {result['range']}, regression failed")
     else:
-        print("Не удалось выполнить предсказание")
+        print("Failed to predict")
