@@ -6,8 +6,10 @@
 #### Стек
 Язык: 
 - Python
+
 ML framework: 
 - PyTorch
+ 
 Backend: 
 - Aiogram - тг-бот
 - S3 - для хранения картинок
